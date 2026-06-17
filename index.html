@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aerodynamic Wind Tunnel Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0c0d12;
+            color: #eee;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        h1 {
+            margin: 10px 0 5px 0;
+            font-size: 1.4rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #fff;
+        }
+
+        p {
+            margin: 0 0 15px 0;
+            color: #666e80;
+            font-size: 0.85rem;
+        }
+
+        #simulation-container {
+            position: relative;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+            border: 2px solid #252836;
+            border-radius: 6px;
+        }
+
+        canvas {
+            display: block;
+            background: #040508;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 25px;
+            background: #151724;
+            padding: 12px 25px;
+            border-radius: 30px;
+            border: 1px solid #2a2e45;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+            color: #b0b7c6;
+        }
+
+        input[type="range"] {
+            accent-color: #00ffcc;
+            cursor: pointer;
+            background: #252836;
+            height: 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Aerodynamic Wind Tunnel</h1>
+    <p>992 GT3 RS Precision Profile & Airflow Simulation</p>
+
+    <div id="simulation-container">
+        <canvas id="tunnelCanvas" width="950" height="450"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="speedSlider">Air Velocity:</label>
+            <input range" id="speedSlider" min="4" max="16" step="0.5" value="9">
+        </div>
+        <div class="control-group">
+            <label for="smokeDensity">Stream Lines:</label>
+            <input type="range" id="smokeDensity" min="10" max="40" step="1" value="25">
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('tunnelCanvas');
+        const ctx = canvas.getContext('2d');
+        const speedSlider = document.getElementById('speedSlider');
+        const smokeDensity = document.getElementById('smokeDensity');
+
+        let windSpeed = parseFloat(speedSlider.value);
+        let particlesPerFrame = parseInt(smokeDensity.value);
+        const particles = [];
+
+        speedSlider.addEventListener('input', (e) => windSpeed = parseFloat(e.target.value));
+        smokeDensity.addEventListener('input', (e) => particlesPerFrame = parseInt(e.target.value));
+
+        // Load the background photo asset
+        const carImage = new Image();
+        carImage.src = 'image_463260.jpg'; 
+
+        // Coordinated physical boundaries scaled to the image dimensions
+        const chassisBoundaries = [
+            {x: 200, y: 310, radius: 45}, 
+            {x: 220, y: 285, radius: 45}, 
+            {x: 260, y: 260, radius: 50}, 
+            {x: 320, y: 245, radius: 50}, 
+            {x: 385, y: 215, radius: 55}, 
+            {x: 460, y: 185, radius: 60}, 
+            {x: 540, y: 182, radius: 60}, 
+            {x: 620, y: 202, radius: 55}, 
+            {x: 700, y: 235, radius: 50}, 
+            {x: 770, y: 262, radius: 45}, 
+            {x: 810, y: 280, radius: 40}  
+        ];
+
+        const wingBoundaries = [
+            {x: 735, y: 180, radius: 35}, 
+            {x: 775, y: 168, radius: 40}, 
+            {x: 820, y: 162, radius: 45}  
+        ];
+
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = windSpeed;
+                this.vy = 0;
+                this.history = [];
+                this.maxHistory = 40; 
+                this.pressureColor = 0;
+                this.active = true;
+            }
+
+            update() {
+                this.vx = windSpeed;
+
+                // Deflection over car panel elements
+                for (let i = 0; i < chassisBoundaries.length; i++) {
+                    let node = chassisBoundaries[i];
+                    let dx = node.x - this.x;
+                    let dy = node.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < node.radius && dx > -30) {
+                        let force = (node.radius - distance) / node.radius;
+                        if (this.y < node.y) {
+                            this.vy -= force * 2.8; 
+                        } else {
+                            this.vy += force * 1.4;
+                        }
+                        this.pressureColor = Math.max(this.pressureColor, force * 80);
+                    }
+                }
+
+                // Wing airflow deflection calculation
+                for (let i = 0; i < wingBoundaries.length; i++) {
+                    let wingNode = wingBoundaries[i];
+                    let dx = wingNode.x - this.x;
+                    let dy = wingNode.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < wingNode.radius && dx > -20) {
+                        let force = (wingNode.radius - distance) / wingNode.radius;
+                        if (this.y < wingNode.y) {
+                            this.vy -= force * 3.2; 
+                        } else {
+                            this.vy -= force * 5.2; 
+                        }
+                        this.pressureColor = Math.max(this.pressureColor, force * 120);
+                    }
+                }
+
+                if (this.x > 830) {
+                    this.vy *= 0.95; 
+                } else {
+                    this.vy *= 0.85;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                this.history.push({x: this.x, y: this.y});
+                if (this.history.length > this.maxHistory) {
+                    this.history.shift();
+                }
+
+                if (this.x > canvas.width) this.active = false;
+            }
+
+            draw() {
+                if (this.history.length < 2) return;
+
+                ctx.beginPath();
+                ctx.moveTo(this.history[0].x, this.history[0].y);
+                for(let i = 1; i < this.history.length; i++) {
+                    ctx.lineTo(this.history[i].x, this.history[i].y);
+                }
+
+                let intensity = Math.min(1, 0.45 + (this.pressureColor / 130));
+                ctx.strokeStyle = `rgba(225, 242, 255, ${intensity})`;
+                ctx.lineWidth = 3.0;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.stroke();
+            }
+        }
+
+        function animate() {
+            // STEP 1: Clear the previous frame canvas area
+            ctx.fillStyle = '#040508';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // STEP 2: DRAW THE IMAGE FIRST IN THE BACKGROUND LAYER
+            if (carImage.complete) {
+                ctx.drawImage(carImage, 0, 0, canvas.width, canvas.height);
+            }
+
+            // Continuous streaming calculation cycles
+            if (particles.length < particlesPerFrame * 18) {
+                for (let i = 0; i < particlesPerFrame; i++) {
+                    let spatialY = (canvas.height / particlesPerFrame) * i;
+                    if(spatialY > 15 && spatialY < 390) {
+                        particles.push(new Particle(0, spatialY));
+                    }
+                }
+            }
+
+            // STEP 3: DRAW PARTICLES ON TOP OF THE IMAGE
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw(); // Binds lines right above the image
+                if (!particles[i].active) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        carImage.onload = () => { animate(); };
+        animate();
+    </script>
+</body>
+</html>
